@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BLE Memory and Firmware Monitor (Write/Indication)</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+        #output { 
+            margin-top: 20px; 
+            padding: 15px; 
+            border: 1px solid #ddd; 
+            max-width: 400px; 
+            margin-left: auto; 
+            margin-right: auto; 
+            text-align: left; 
+            line-height: 1.8;
+            border-radius: 5px;
+        }
+        button { 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            background-color: #007bff;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #readMemoryButton {
+            background-color: #28a745;
+        }
+        #readFirmwareButton {
+            background-color: #ffc107; /* New color for firmware button */
+        }
+        .error { color: red; }
+        .success { color: green; }
+        .info-section { 
+            margin-top: 20px; 
+            padding-top: 10px; 
+            border-top: 1px dashed #ddd; 
+        }
+    </style>
+</head>
+<body>
+
+    <h1>BLE Device Info & Monitor</h1>
+
+    <button id="connectButton">Connect to BLE Device</button>
+    <button id="readMemoryButton" disabled>Request Memory Info</button>
+    <button id="readFirmwareButton" disabled>Request Firmware Info</button>
+
+    <p id="status">Ready. Click "Connect to BLE Device" to begin.</p>
+
+    <div id="output">
+        <h3>Memory Information</h3>
+        <strong>Free RAM (ram_bytes_free):</strong> <span id="freeRam">N/A</span><br>
+        <strong>Free Storage (flash_bytes_free):</strong> <span id="freeFlash">N/A</span>
+        
+        <div class="info-section">
+            <h3>Firmware Information</h3>
+            <strong>ESP32 Version (esp32_ver):</strong> <span id="esp32Ver">N/A</span><br>
+            <strong>STM32 Version (stm32_ver):</strong> <span id="stm32Ver">N/A</span>
+        </div>
+    </div>
+
+    <script>
+        // UUIDs derived from ble_spp_server.h
+        const THYMIO_SERVICE_UUID = '0000abf0-0000-1000-8000-00805f9b34fb';
+        const DEVICE_INFO_CHARACTERISTIC_UUID = '0000abf5-0000-1000-8000-00805f9b34fb';
+        
+        // Command and Response IDs derived from ble_spp.h and C code (case 13 and 15)
+        const DEV_INFO_WRITE_MEMORY = 0x02; // Command to write (case 13)
+        const DEV_INFO_IND_MEMORY_RES = 0x02; // Expected response ID
+        
+        // New Firmware IDs (based on case 15 and instruction)
+        const DEV_INFO_WRITE_FIRMWARE = 0x01; // Command to write (case 15)
+        const DEV_INFO_IND_FIRMWARE_RES = 0x01; // Expected response ID
+
+        let bleDevice = null;
+        let deviceInfoCharacteristic = null;
+
+        const connectButton = document.getElementById('connectButton');
+        const readMemoryButton = document.getElementById('readMemoryButton');
+        const readFirmwareButton = document.getElementById('readFirmwareButton');
+        const statusDiv = document.getElementById('status');
+        const freeRamSpan = document.getElementById('freeRam');
+        const freeFlashSpan = document.getElementById('freeFlash');
+        const esp32VerSpan = document.getElementById('esp32Ver');
+        const stm32VerSpan = document.getElementById('stm32Ver');
+
+        /**
+         * Converts bytes to a human-readable format.
+         */
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'kB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function onDisconnected() {
+            statusDiv.textContent = 'Device disconnected.';
+            statusDiv.className = 'error';
+            bleDevice = null;
+            deviceInfoCharacteristic = null;
+            readMemoryButton.disabled = true;
+            readFirmwareButton.disabled = true;
+            connectButton.disabled = false;
+        }
+        
+        /**
+         * Parses the JSON payload from the indication and updates the display.
+         * @param {DataView} dataView 
+         * @param {ArrayBuffer} buffer 
+         * @returns {number} The ID of the parsed response.
+         */
+        function processIndication(dataView, buffer) {
+            const HEADER_SIZE = 3; 
+            
+            if (buffer.byteLength < HEADER_SIZE) {
+                throw new Error(`Data too short (${buffer.byteLength} bytes).`);
+            }
+
+            const id = dataView.getUint8(0);
+            const jsonLength = dataView.getUint16(1, true); // Little Endian 'true'
+            const jsonPayloadBuffer = buffer.slice(HEADER_SIZE);
+            const decoder = new TextDecoder('utf-8');
+            const jsonString = decoder.decode(jsonPayloadBuffer).trim();
+
+            const info = JSON.parse(jsonString);
+
+            if (id === DEV_INFO_IND_MEMORY_RES) {
+                // Handle Memory Info
+                const freeRam = info.ram_bytes_free;
+                const freeFlash = info.flash_bytes_free;
+
+                freeRamSpan.textContent = `${freeRam} Bytes (${formatBytes(freeRam)})`;
+                freeFlashSpan.textContent = `${freeFlash} Bytes (${formatBytes(freeFlash)})`;
+                return id;
+            } else if (id === DEV_INFO_IND_FIRMWARE_RES) {
+                // Handle Firmware Info
+                esp32VerSpan.textContent = info.esp32_ver;
+                stm32VerSpan.textContent = info.stm32_ver;
+                return id;
+            } else {
+                throw new Error(`Unexpected response ID 0x${id.toString(16)}.`);
+            }
+        }
+
+
+        /**
+         * Handler for indication/notification events on the characteristic.
+         * @param {Event} event 
+         */
+        function handleDeviceInfoIndication(event) {
+            const value = event.target.value;
+            const buffer = value.buffer;
+            
+            message = 'received indication. Processing...';
+            statusDiv.textContent = message;
+            statusDiv.className = '';
+
+            try {
+                const dataView = new DataView(buffer);
+                const id = processIndication(dataView, buffer);
+                
+                let message = '';
+                if (id === DEV_INFO_IND_MEMORY_RES) {
+                    message = 'Memory information updated via BLE indication.';
+                } else if (id === DEV_INFO_IND_FIRMWARE_RES) {
+                    message = 'Firmware information updated via BLE indication.';
+                }
+
+                statusDiv.textContent = message;
+                statusDiv.className = 'success';
+
+            } catch (error) {
+                statusDiv.textContent = `Processing error: ${error.message}. Check console for details.`;
+                statusDiv.className = 'error';
+                console.error("BLE Indication Processing Error:", error);
+            }
+        }
+
+
+        async function connectDevice() {
+            try {
+                statusDiv.textContent = 'Searching for device...';
+                statusDiv.className = '';
+                connectButton.disabled = true;
+
+                // 1. Request the BLE device
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [THYMIO_SERVICE_UUID] }],
+                    optionalServices: [THYMIO_SERVICE_UUID]
+                });
+
+                statusDiv.textContent = `Connecting to ${bleDevice.name}...`;
+
+                // 2. Connect to the GATT server
+                const server = await bleDevice.gatt.connect();
+
+                // 3. Get the Service and Characteristic
+                const service = await server.getPrimaryService(THYMIO_SERVICE_UUID);
+                deviceInfoCharacteristic = await service.getCharacteristic(DEVICE_INFO_CHARACTERISTIC_UUID);
+                
+                // 4. Set up Indication/Notification Listener
+                deviceInfoCharacteristic.addEventListener('characteristicvaluechanged', handleDeviceInfoIndication);
+                await deviceInfoCharacteristic.startNotifications();
+
+                statusDiv.textContent = `Connected to ${bleDevice.name}. Notifications enabled. Click a 'Request' button to send a command.`;
+                statusDiv.className = 'success';
+                readMemoryButton.disabled = false;
+                readFirmwareButton.disabled = false;
+
+                // Handle disconnection
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+            } catch (error) {
+                statusDiv.textContent = `Connection error: ${error.message}`;
+                statusDiv.className = 'error';
+                connectButton.disabled = false;
+                console.error(error);
+                bleDevice = null;
+                deviceInfoCharacteristic = null;
+                readMemoryButton.disabled = true;
+                readFirmwareButton.disabled = true;
+            }
+        }
+
+        async function readMemoryInfo() {
+            return writeCommand(DEV_INFO_WRITE_MEMORY, 'memory');
+        }
+
+        async function readFirmwareInfo() {
+            return writeCommand(DEV_INFO_WRITE_FIRMWARE, 'firmware');
+        }
+
+        async function writeCommand(commandByte, infoType) {
+            if (!deviceInfoCharacteristic) {
+                statusDiv.textContent = 'Error: Not connected to the characteristic.';
+                statusDiv.className = 'error';
+                return;
+            }
+
+            const button = infoType === 'memory' ? readMemoryButton : readFirmwareButton;
+
+            try {
+                statusDiv.textContent = `Writing command to request ${infoType} information...`;
+                statusDiv.className = '';
+                button.disabled = true;
+
+                // The command is a single byte
+                const writeValue = new Uint8Array([commandByte]);
+                
+                // 1. Write the value
+                await deviceInfoCharacteristic.writeValueWithResponse(writeValue);
+
+                statusDiv.textContent = `Command sent. Waiting for ${infoType} indication (ID 0x${commandByte.toString(16)})...`;
+                
+            } catch (error) {
+                statusDiv.textContent = `Write command error for ${infoType}: ${error.message}.`;
+                statusDiv.className = 'error';
+                console.error("BLE Write Error:", error);
+            } finally {
+                // Re-enable the button to allow retries
+                button.disabled = false;
+            }
+        }
+
+        // Event Listeners
+        connectButton.addEventListener('click', connectDevice);
+        readMemoryButton.addEventListener('click', readMemoryInfo);
+        readFirmwareButton.addEventListener('click', readFirmwareInfo); // New listener
+
+    </script>
+
+</body>
+</html>

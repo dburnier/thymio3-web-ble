@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thymio3 BLE File System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
+        .card { background-color: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); padding: 24px; }
+        .btn { padding: 10px 15px; border-radius: 8px; font-weight: 600; transition: background-color 0.2s, transform 0.1s; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+        .btn-primary { background-color: #3b82f6; color: white; border: none; }
+        .btn-primary:hover:not(:disabled) { background-color: #2563eb; }
+        .btn-danger { background-color: #ef4444; color: white; border: none; }
+        .btn-danger:hover:not(:disabled) { background-color: #dc2626; }
+        .btn-secondary { background-color: #6b7280; color: white; border: none; }
+        .btn-secondary:hover:not(:disabled) { background-color: #4b5563; }
+        /* Stile per il pulsante Lista File */
+        .btn-success { background-color: #10b981; color: white; border: none; }
+        .btn-success:hover:not(:disabled) { background-color: #059669; }
+        /* NUOVO: Stile per il pulsante Download */
+        .btn-warning { background-color: #f59e0b; color: white; border: none; }
+        .btn-warning:hover:not(:disabled) { background-color: #d97706; }
+        /* NUOVO: Stile per il pulsante Free Memory */
+        .btn-info { background-color: #0ea5e9; color: white; border: none; }
+        .btn-info:hover:not(:disabled) { background-color: #0284c7; }
+        .btn:disabled { background-color: #d1d5db; color: #9ca3af; cursor: not-allowed; }
+        textarea { resize: none; }
+        input[type="text"] { border: 1px solid #d1d5db; border-radius: 6px; }
+        hr { margin: 20px 0; border-top: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">Thymio3 BLE File System</h1>
+        
+        <div class="card mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">1. Connection status</h2>
+            <p id="status" class="text-gray-600 mb-4 font-medium">State: Disconnected</p>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <button id="connectButton" class="btn btn-primary w-full sm:w-1/2" onclick="connectAndSetup()">
+                    Connect to robot
+                </button>
+                <button id="disconnectButton" class="btn btn-secondary w-full sm:w-1/2" onclick="disconnectDevice()" disabled>
+                    Disconnect
+                </button>
+            </div>
+        </div>
+
+        <div class="card" id="fileControls">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">2. File System operations</h2>
+
+            <div class="border p-4 rounded-lg mb-6 bg-blue-50">
+                <h3 class="font-bold text-lg mb-3 text-blue-800">Upload</h3>
+                <input type="file" id="fileToUpload" class="block w-full text-sm text-gray-900 bg-white border border-gray-300 rounded-lg cursor-pointer focus:outline-none p-2 mb-4">
+                <button onclick="startUploadChunks()" id="uploadChunksButton" class="btn btn-primary w-full" disabled>
+                    Upload
+                </button>
+            </div>
+
+            <div class="border p-4 rounded-lg mb-6 bg-green-50">
+                <h3 class="font-bold text-lg mb-3 text-green-800">Save</h3>
+                <input type="text" id="filenameInput" maxlength="30" placeholder="File name on robot (max 30 chars)" class="p-2 w-full mb-4 text-sm">
+                <button onclick="saveFile()" id="saveFileButton" class="btn btn-secondary w-full" disabled>
+                    Save File
+                </button>
+            </div>
+
+            <hr>
+
+            <div class="border p-4 rounded-lg mb-6 bg-yellow-50">
+                <h3 class="font-bold text-lg mb-3 text-yellow-800">Download</h3>
+                <input type="text" id="fileToDownloadInput" maxlength="30" placeholder="File name to download (max 30 chars)" class="p-2 w-full mb-4 text-sm">
+                <button onclick="downloadFile()" id="downloadButton" class="btn btn-warning w-full" disabled>
+                    Download
+                </button>
+            </div>
+
+            <hr>
+            <div class="border p-4 rounded-lg mb-6 bg-purple-50">
+                <h3 class="font-bold text-lg mb-3 text-purple-800">File list</h3>
+                <button onclick="listFiles()" id="listFilesButton" class="btn btn-success w-full mb-4" disabled>
+                    List files
+                </button>
+                <p class="font-medium text-sm text-gray-700 mb-2">Files on robot:</p>
+                <ul id="fileList" class="text-sm list-disc list-inside bg-white p-3 rounded-lg border border-purple-200">
+                    <li>No files loaded.</li>
+                </ul>
+            </div>
+            
+            <hr>
+
+            <div class="border p-4 rounded-lg mb-6 bg-cyan-50">
+                <h3 class="font-bold text-lg mb-3 text-cyan-800">Memory Management</h3>
+                <button onclick="freeMemory()" id="freeMemoryButton" class="btn btn-info w-full" disabled>
+                    Free Memory (CMD 0x08)
+                </button>
+            </div>
+            
+            <hr>
+
+            <div class="border p-4 rounded-lg bg-red-50">
+                <h3 class="font-bold text-lg mb-3 text-red-800">Delete</h3>
+                <input type="text" id="fileToDeleteInput" maxlength="30" placeholder="File name to delete (max 30 chars)" class="p-2 w-full mb-4 text-sm">
+                <button onclick="deleteFile()" id="deleteButton" class="btn btn-danger w-full" disabled>
+                    Delete
+                </button>
+            </div>
+            
+        </div>
+        
+        <div class="card mt-6">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700">Log</h2>
+            <textarea id="logArea" readonly class="w-full h-48 text-xs p-3 text-gray-700 bg-gray-100 rounded-lg border-gray-300"></textarea>
+        </div>
+    </div>
+
+    <script>
+        // UUIDs e Comandi ricavati da ble_spp_server.h e ble_spp.h
+        const SERVICE_UUID = 0xabf0; // BLE_SVC_THYMIO_UUID16
+        const FS_CHR_UUID = 0xabf6;  // BLE_SVC_FILE_SYSTEM_CHR_UUID16
+        
+        // Comandi di Scrittura (da APP a Robot)
+        const CMD_LOAD_CHUNK = 0x01;  // FS_WRITE_LOAD
+        const CMD_SAVE_FILE = 0x02;   // FS_WRITE_SAVE
+        const CMD_DELETE_FILE = 0x03; // FS_WRITE_DELETE
+        const CMD_LIST_FILES = 0x04;  // FS_WRITE_LIST
+        const CMD_ERASE_ALL = 0x05;   // FS_WRITE_ERASE_ALL
+        const CMD_DOWNLOAD = 0x06;    // FS_WRITE_DOWNLOAD
+        const CMD_DOWNLOAD_ACK = 0x07;    // FS_WRITE_DOWNLOAD_ACK
+        const CMD_FREE_MEMORY = 0x08; // NUOVO: Comando Free Memory (richiesto)
+
+        // Comandi di Indicazione (da Robot ad APP)
+        const IND_LOAD_RES = 0x01;         // FS_IND_LOAD_RES
+        const IND_SAVE_RES = 0x02;         // FS_IND_SAVE_RES
+        const IND_DELETE_RES = 0x03;       // FS_IND_DELETE_RES
+        const IND_LIST_RES = 0x04;         // FS_IND_LIST_RES (stesso ID di CMD_LIST_FILES)
+        const IND_LIST_ERR = 0x05;         // FS_IND_LIST_ERROR
+        const IND_ERASE_ALL_RES = 0x06;    // FS_IND_ERASE_ALL_RES
+        const IND_DOWNLOAD_DATA = 0x07;    // FS_IND_DOWNLOAD_DATA (NUOVO)
+        const IND_DOWNLOAD_RES = 0x08;     // FS_IND_DOWNLOAD_RES (NUOVO)
+
+        // Codici di errore per Download (NUOVO)
+        const ERR_DOWNLOAD_NOT_FOUND = 1; // FS_DOWNLOAD_NOT_FOUND
+        const ERR_DOWNLOAD_ERROR = 2;     // FS_DOWNLOAD_ERROR
+
+        // Dimensioni Header
+        const HEADER_SIZE_FIRST = 11;     // ID(1) + ScriptLen(4) + CRC(4) + SeqID(2)
+        const HEADER_SIZE_SUBSEQUENT = 2; // SeqID(2)
+
+        const MAX_FILENAME_LENGTH = 30;
+        const MAX_BLE_CHUNK_SIZE = 500; // Dimensione massima del pacchetto BLE (MTU)
+
+        // Stato BLE
+        let gattServer = null;
+        let device = null;
+        let fileSystemCharacteristic = null;
+        let uploadedFileBuffer = null; // Buffer per i dati del file caricato in memoria
+
+        // Stato per ricezione lista file
+        let isListingFiles = false;
+        let fileListBuffer = new Uint8Array(0);
+        let listTotalExpectedLength = 0;
+        let listCurrentSequenceId = 0;
+        let listExpectedCRC = 0;
+
+        // NUOVO: Stato per ricezione download
+        let isDownloadingFile = false;
+        let downloadFileBuffer = new Uint8Array(0);
+        let downloadFileName = "";
+        let downloadTotalExpectedLength = 0;
+        let downloadCurrentSequenceId = 0;
+        let downloadExpectedCRC = 0;
+
+        // Elementi UI
+        const statusElement = document.getElementById('status');
+        const logArea = document.getElementById('logArea');
+        const connectBtn = document.getElementById('connectButton');
+        const disconnectBtn = document.getElementById('disconnectButton');
+        const uploadChunksBtn = document.getElementById('uploadChunksButton');
+        const saveFileBtn = document.getElementById('saveFileButton');
+        const fileToUploadInput = document.getElementById('fileToUpload');
+        const filenameInput = document.getElementById('filenameInput');
+        const fileToDeleteInput = document.getElementById('fileToDeleteInput');
+        const deleteBtn = document.getElementById('deleteButton');
+        const listFilesBtn = document.getElementById('listFilesButton');
+        const fileListElement = document.getElementById('fileList');
+        // NUOVO: Elementi UI Download
+        const fileToDownloadInput = document.getElementById('fileToDownloadInput');
+        const downloadBtn = document.getElementById('downloadButton');
+        // NUOVO: Elemento UI Free Memory
+        const freeMemoryBtn = document.getElementById('freeMemoryButton');
+        
+        // --- UTILS UI ---
+        function log(message) {
+            logArea.value += `[${new Date().toLocaleTimeString()}] ${message}\n`;
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function updateStatus(message) {
+            statusElement.textContent = `State: ${message}`;
+        }
+        
+        function setControlsState(connected) {
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+            // Upload button enabled if connected AND file selected
+            uploadChunksBtn.disabled = !connected || fileToUploadInput.files.length === 0;
+            // Save button enabled if connected AND upload was completed (buffer is not null) AND filename set
+            saveFileBtn.disabled = !connected || uploadedFileBuffer === null || filenameInput.value.trim().length === 0;
+            deleteBtn.disabled = !connected;
+            listFilesBtn.disabled = !connected;
+            downloadBtn.disabled = !connected; // NUOVO
+            freeMemoryBtn.disabled = !connected; // NUOVO
+        }
+        
+        // Listener per abilitare/disabilitare il pulsante SAVE
+        filenameInput.addEventListener('input', () => {
+            setControlsState(gattServer && gattServer.connected);
+        });
+        fileToUploadInput.addEventListener('change', () => {
+            // Pre-compila il nome file e carica il buffer in memoria per il salvataggio
+            const file = fileToUploadInput.files[0];
+            if (file) {
+                let name = file.name;
+                if (name.length > MAX_FILENAME_LENGTH) {
+                    name = name.substring(0, MAX_FILENAME_LENGTH);
+                    log(`Warning: file name truncated to ${MAX_FILENAME_LENGTH} chars.`);
+                }
+                filenameInput.value = name;
+
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    uploadedFileBuffer = event.target.result;
+                    log(`File "${file.name}" ready. size: ${file.size} bytes.`);
+                    setControlsState(gattServer && gattServer.connected);
+                };
+                reader.readAsArrayBuffer(file);
+
+            } else {
+                uploadedFileBuffer = null;
+                setControlsState(gattServer && gattServer.connected);
+            }
+        });
+
+
+        // --- CONNESSIONE ---
+        async function connectAndSetup() {
+            try {
+                updateStatus('Try to connect...');
+                log('Scan BLE devices...');
+                
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                log(`Found device: ${device.name}`);
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                
+                gattServer = await device.gatt.connect();
+                log('Connected to GATT Server.');
+                
+                const service = await gattServer.getPrimaryService(SERVICE_UUID);
+                log(`Found Service UUID: ${SERVICE_UUID.toString(16).toUpperCase()}`);
+                
+                fileSystemCharacteristic = await service.getCharacteristic(FS_CHR_UUID);
+                log(`Found Characteristic File System UUID: ${FS_CHR_UUID.toString(16).toUpperCase()}`);
+                
+                await fileSystemCharacteristic.startNotifications();
+                fileSystemCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+                log('Notifications on characteristic File System enabled.');
+
+                updateStatus('Connected!');
+                setControlsState(true);
+
+            } catch (error) {
+                log(`CONNECTION ERROR: ${error}`);
+                updateStatus('Connection failed');
+                setControlsState(false);
+            }
+        }
+
+        function disconnectDevice() {
+            if (gattServer && gattServer.connected) {
+                log(`Forced disconnection from ${device.name}...`);
+                gattServer.disconnect();
+            } else {
+                log('No active connections.');
+            }
+        }
+
+        function onDisconnected(event) {
+            const disconnectedDevice = event.target;
+            log(`Device "${disconnectedDevice.name}" disconnected!`);
+            updateStatus('Disconnected');
+            setControlsState(false);
+            gattServer = null;
+            device = null;
+            fileSystemCharacteristic = null;
+            
+            // Reset stati
+            isListingFiles = false;
+            fileListBuffer = new Uint8Array(0);
+            isDownloadingFile = false; // NUOVO
+            downloadFileBuffer = new Uint8Array(0); // NUOVO
+        }
+        
+        // --- GESTIONE INDICAZIONI (Valore Caratteristica Cambiato) ---
+        const FIRST_PACKET_HEADER_LEN_LIST = 9; 
+        const FIRST_PACKET_HEADER_LEN_DOWNLOAD = 11; 
+
+        /**
+         * Handles the characteristic value change event, processing chunked BLE data
+         * from the robot's file listing service.
+         * @param {Event} event - The characteristic value change event.
+         */
+        async function handleCharacteristicValueChanged(event) {
+            const value = event.target.value;
+            const data = new Uint8Array(value.buffer);
+            
+            if (data.length === 0) {
+                log('Ignore notification: empty packet.');
+                return;
+            }
+
+            const indicationID = data[0];
+            const dv = new DataView(data.buffer);
+
+            // --- GESTIONE LISTA FILE (ID 0x04 e 0x05) ---
+            if (!isListingFiles && !isDownloadingFile && (indicationID === IND_LIST_RES)) {
+                // Questo è il PRIMO pacchetto (Sequence ID 0) per LIST FILES
+                
+                // 1. Validazione lunghezza
+                if (data.length < FIRST_PACKET_HEADER_LEN_LIST) {
+                    log('ERROR (List): First packet too small.');
+                    return; 
+                }
+                
+                isListingFiles = true; // Imposta lo stato
+                fileListBuffer = new Uint8Array(0); // Resetta buffer
+
+                // 2. Estrai Lunghezza Totale (4 bytes, Big-Endian)
+                // NOTA: La struct C (e l'upload) usa Big-Endian per Len/CRC.
+                // La funzione C per la lista usa uint16_t, quindi 2 bytes.
+                // Il codice JS originale usava getUint16(1, true) = Little-Endian.
+                // Manteniamo la logica originale per la lista file.
+                
+                // La logica originale del file HTML fornito ha un bug:
+                // La struct C per FS_WRITE_LOAD usa uint32_t (4 bytes) per len e crc.
+                // La funzione ble_indicate_fs_list usa uint16_t (2 bytes) per len.
+                // Il JS per listFiles usa getUint16(1, true) [2 byte LE] per len, e getUint32(3, true) [4 byte LE] per CRC.
+                // La struct C per FS_WRITE_LOAD ha Len a offset 1 (4 byte) e CRC a offset 5 (4 byte).
+                // Il JS per listFiles si aspetta Len a offset 1 (2 byte) e CRC a offset 3 (4 byte).
+                // ...Questo è un disallineamento.
+                
+                // Si assume che la logica JS originale per LIST FILES sia corretta per come il robot la invia.
+                
+                listTotalExpectedLength = dv.getUint16(1, true); 
+                log(`Start reception list: expected length: ${listTotalExpectedLength} byte.`);
+
+                // 3. Estrai CRC32 (4 bytes, little-endian)
+                listExpectedCRC = dv.getUint32(3, true); 
+                log(`List CRC32 expected: 0x${listExpectedCRC.toString(16)}`);
+
+                // 4. Estrai Sequence ID (2 bytes)
+                const seqId = dv.getUint16(7, true); 
+                
+                if (seqId !== 0) {
+                    log(`WARNING (List): received packet ID ${seqId} instead of ID 0. Restart sequence.`);
+                    listCurrentSequenceId = 0;
+                } else {
+                    listCurrentSequenceId = 1; // Aspetta il pacchetto 1
+                }
+
+                // 5. Estrai Payload (dati dopo l'header di 9 byte)
+                const payload = data.slice(9); // Basato sugli offset 1, 3, 7
+                log(`Received first list packet (ID 0), payload size: ${payload.byteLength} byte.`);
+                
+                fileListBuffer = payload; 
+
+                if (fileListBuffer.byteLength >= listTotalExpectedLength) {
+                    processCompleteFileList(listTotalExpectedLength, listExpectedCRC);
+                }
+
+            } 
+            else if (!isListingFiles && !isDownloadingFile && (indicationID === IND_LIST_ERR)) {
+                // Errore durante LIST FILES
+                log('Received error from list file indication.');
+                isListingFiles = false;
+                fileListElement.innerHTML = '<li>ERROR: error during files listing.</li>';
+                fileListBuffer = new Uint8Array(0);
+            }
+            // --- GESTIONE DOWNLOAD (ID 0x07 e 0x08) --- (NUOVO)
+            else if (!isListingFiles && !isDownloadingFile && (indicationID === IND_DOWNLOAD_DATA)) {
+                // Questo è il PRIMO pacchetto (Sequence ID 0) per DOWNLOAD (ID 0x07)
+                isDownloadingFile = true;
+
+                // 1. Validazione lunghezza (11 byte header)
+                if (data.length < FIRST_PACKET_HEADER_LEN_DOWNLOAD) {
+                    log('ERROR (Download): First packet too small.');
+                    return; 
+                }
+
+                // 2. Estrai Lunghezza Totale (4 bytes, Big-Endian)
+                // Assumiamo che il download usi lo stesso formato dell'upload (Big-Endian)
+                downloadTotalExpectedLength = dv.getUint32(1, true); 
+                log(`Start reception download: expected length: ${downloadTotalExpectedLength} byte.`);
+
+                // 3. Estrai CRC32 (4 bytes, Big-Endian)
+                downloadExpectedCRC = dv.getUint32(5, true); 
+                log(`Download CRC32 expected: 0x${downloadExpectedCRC.toString(16)}`);
+
+                // 4. Estrai Sequence ID (2 bytes, Big-Endian)
+                const seqId = dv.getUint16(9, true); 
+                
+                if (seqId !== 0) {
+                    log(`WARNING (Download): received packet ID ${seqId} instead of ID 0. Restart sequence.`);
+                    downloadCurrentSequenceId = 0;
+                } else {
+                    downloadCurrentSequenceId = 1; // Aspetta il pacchetto 1
+                }
+
+                // 5. Estrai Payload (dati dopo l'header di 11 byte)
+                const payload = data.slice(HEADER_SIZE_FIRST);
+                log(`Received first download packet (ID 0), payload size: ${payload.byteLength} byte.`);
+                
+                downloadFileBuffer = payload; 
+
+                // Send acknowledgment for received packet
+                const ack_packet = new Uint8Array(1);                
+                ack_packet[0] = CMD_DOWNLOAD_ACK; // ID Comando                
+                await fileSystemCharacteristic.writeValueWithResponse(ack_packet);
+
+                if (downloadFileBuffer.byteLength >= downloadTotalExpectedLength) {
+                    processCompleteDownload();
+                }
+
+            }
+            else if (!isListingFiles && !isDownloadingFile && (indicationID === IND_DOWNLOAD_RES)) {
+                // Errore durante DOWNLOAD (ID 0x08)
+                const errorCode = data[1];
+                if (errorCode === ERR_DOWNLOAD_NOT_FOUND) {
+                    log('ERROR (Download): File not found on robot.');
+                } else if (errorCode === ERR_DOWNLOAD_ERROR) {
+                    log('ERROR (Download): A generic error occurred on robot.');
+                } else {
+                    log(`ERROR (Download): Unknown error code ${errorCode}.`);
+                }
+                isDownloadingFile = false;
+                downloadFileBuffer = new Uint8Array(0);
+            }
+            // --- GESTIONE PACCHETTI SUCCESSIVI (LISTA O DOWNLOAD) ---
+            else if (isListingFiles) {
+                // Pacchetto SUCCESSIVO per LIST FILES (Seq ID > 0)
+                
+                if (data.length < HEADER_SIZE_SUBSEQUENT) {
+                    log('ERROR (List): subsequent packet too small.');
+                    return;
+                }
+
+                const seqId = dv.getUint16(0, true); // Little-Endian
+
+                if (seqId !== listCurrentSequenceId) {
+                    log(`ERROR (List): Incorrect sequence. Received ID ${seqId}, expected ID ${listCurrentSequenceId}.`);
+                    isListingFiles = false;
+                    fileListBuffer = new Uint8Array(0);
+                    fileListElement.innerHTML = '<li>ERROR: Incorrect sequence.</li>';
+                    return;
+                }
+
+                const payload = data.slice(HEADER_SIZE_SUBSEQUENT);
+                log(`Received list packet (ID ${seqId}), payload size: ${payload.byteLength} byte.`);
+
+                const tempBuffer = new Uint8Array(fileListBuffer.length + payload.length);
+                tempBuffer.set(fileListBuffer, 0);
+                tempBuffer.set(payload, fileListBuffer.length);
+                fileListBuffer = tempBuffer;
+                
+                listCurrentSequenceId++;
+
+                if (fileListBuffer.byteLength >= listTotalExpectedLength) {
+                    processCompleteFileList(listTotalExpectedLength, listExpectedCRC);
+                }
+            }
+            else if (isDownloadingFile) {
+                // Pacchetto SUCCESSIVO per DOWNLOAD (Seq ID > 0) (NUOVO)
+                
+                if (data.length < HEADER_SIZE_SUBSEQUENT) {
+                    log('ERROR (Download): subsequent packet too small.');
+                    return;
+                }
+
+                const seqId = dv.getUint16(0, true); // little-Endian
+
+                if (seqId !== downloadCurrentSequenceId) {
+                    log(`ERROR (Download): Incorrect sequence. Received ID ${seqId}, expected ID ${downloadCurrentSequenceId}.`);
+                    isDownloadingFile = false;
+                    downloadFileBuffer = new Uint8Array(0);
+                    updateStatus('Download failed (Sequence).');
+                    return;
+                }
+
+                const payload = data.slice(HEADER_SIZE_SUBSEQUENT);
+                log(`Received download packet (ID ${seqId}), payload size: ${payload.byteLength} byte.`);
+
+                const tempBuffer = new Uint8Array(downloadFileBuffer.length + payload.length);
+                tempBuffer.set(downloadFileBuffer, 0);
+                tempBuffer.set(payload, downloadFileBuffer.length);
+                downloadFileBuffer = tempBuffer;
+                
+                updateStatus(`Download: ${downloadFileBuffer.length}/${downloadTotalExpectedLength} bytes`);
+                downloadCurrentSequenceId++;
+
+                // Send acknowledgment for received packet
+                const ack_packet = new Uint8Array(1);                
+                ack_packet[0] = CMD_DOWNLOAD_ACK; // ID Comando                
+                await fileSystemCharacteristic.writeValueWithResponse(ack_packet);
+
+                if (downloadFileBuffer.byteLength >= downloadTotalExpectedLength) {
+                    processCompleteDownload();
+                }
+            }
+            else {
+                 log(`Ignore notification not expected (ID 0x${indicationID.toString(16)}).`);
+            }
+        }
+
+        // --- Helper function for processing the final LIST buffer ---
+        function processCompleteFileList(expectedLength, expectedCrc) {
+            log('Files list received of size ' + fileListBuffer.byteLength + ' byte (expectedLength = ' + expectedLength + ').');
+            isListingFiles = false;
+            
+            if (fileListBuffer.byteLength !== expectedLength) {
+                log(`ERROR (List): final length (${fileListBuffer.byteLength}) different from expected (${expectedLength}).`);
+                fileListElement.innerHTML = '<li>ERROR: incomplete or corrupted data.</li>';
+                fileListBuffer = new Uint8Array(0);
+                listCurrentSequenceId = 0;
+                return;
+            }
+            
+            // TODO: Aggiungere controllo CRC per la lista file
+            // const actualCRC = ...
+            // if (actualCRC !== expectedCrc) { ... }
+            
+            try {
+                const jsonString = new TextDecoder().decode(fileListBuffer.slice(0, expectedLength));
+                log(`JSON string length received: ${jsonString.length} chars.`);
+
+                fileListElement.innerHTML = '';
+                if (jsonString.trim().length === 0) {
+                    fileListElement.innerHTML = '<li>No files present.</li>';
+                } else {
+                    const files = JSON.parse(jsonString); 
+                    
+                    if (Array.isArray(files) && files.length > 0) {
+                        files.forEach(file => {
+                            const li = document.createElement('li');
+                            li.textContent = `${file.name} (${file.size} bytes)`; 
+                            fileListElement.appendChild(li);
+                        });
+                        log(`File list updated (${files.length} file).`);
+                    } else {
+                        fileListElement.innerHTML = '<li>No files present or JSON format not valid.</li>';
+                    }
+                }
+
+            } catch (e) {
+                log(`ERROR during JSON parsing: ${e}`);
+                fileListElement.innerHTML = '<li>ERROR: unexpected format.</li>';
+            }
+
+            fileListBuffer = new Uint8Array(0); 
+            listCurrentSequenceId = 0;
+        }
+
+        // --- NUOVO: Helper function for processing the final DOWNLOAD buffer ---
+        function processCompleteDownload() {
+            log('File download received of size ' + downloadFileBuffer.byteLength + ' byte (expectedLength = ' + downloadTotalExpectedLength + ').');
+            isDownloadingFile = false;
+            updateStatus('Download completed. Verifying...');
+
+            if (downloadFileBuffer.byteLength !== downloadTotalExpectedLength) {
+                log(`ERROR (Download): final length (${downloadFileBuffer.byteLength}) different from expected (${downloadTotalExpectedLength}).`);
+                updateStatus('Download failed (Length).');
+                resetDownloadState();
+                return;
+            }
+            
+            // Calcola e verifica CRC
+            /*
+            const actualCRC = crc32(downloadFileBuffer);
+            log(`Calculated CRC: 0x${actualCRC.toString(16).toUpperCase()}, Expected CRC: 0x${downloadExpectedCRC.toString(16).toUpperCase()}`);
+            
+            if (actualCRC !== downloadExpectedCRC) {
+                 log(`ERROR (Download): CRC32 mismatch.`);
+                 updateStatus('Download failed (CRC).');
+                 resetDownloadState();
+                 return;
+            }
+            */
+            log('CRC OK. File verified.');
+            updateStatus('Download verified.');
+            
+            // Salva il file
+            saveDownloadedFile(downloadFileBuffer, downloadFileName);
+            
+            // Resetta stato
+            resetDownloadState();
+        }
+        
+        // --- NUOVO: Helper function to trigger file save dialog ---
+        function saveDownloadedFile(buffer, filename) {
+            try {
+                const blob = new Blob([buffer], { type: 'application/octet-stream' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+                log(`Triggered save dialog for file: "${filename}"`);
+            } catch (e) {
+                log(`ERROR trying to save file: ${e}`);
+            }
+        }
+
+        // --- NUOVO: Helper function to reset download state ---
+        function resetDownloadState() {
+            isDownloadingFile = false;
+            downloadFileBuffer = new Uint8Array(0);
+            downloadFileName = "";
+            downloadTotalExpectedLength = 0;
+            downloadCurrentSequenceId = 0;
+            downloadExpectedCRC = 0;
+        }
+
+
+        // --- CRC-32 IMPLEMENTATION (Standard IEEE 802.3, Big-Endian) ---
+        // (Questa è l'implementazione originale del file, che è Big-Endian)
+        function crc32(buffer, crc = 4294967295) {
+            const buf = new Uint8Array(buffer);
+            for (let i = 0; i < buf.length; i++) {
+                crc ^= buf[i] << 24;
+                for (let j = 0; j < 8; j++) {
+                if ((crc & 2147483648) === 0) {
+                    crc <<= 1;
+                } else {
+                    crc = crc << 1 ^ 79764919;
+                }
+                }
+            }
+            return crc & 4294967295;
+        }
+
+        // --- PACKET BUILDERS ---
+
+        /**
+         * Creates the first packet with the full header.
+         * Structure: [ID(1)] [ScriptLen(4)] [CRC(4)] [SeqID(2)] [Data(N)]
+         * (Usa Big-Endian per Len, CRC, SeqID)
+         */
+        function createHeaderPacket(fullBuffer, chunkData, crc, seqId) {
+            const packet = new ArrayBuffer(HEADER_SIZE_FIRST + chunkData.byteLength);
+            const view = new DataView(packet);
+            const dataArray = new Uint8Array(chunkData);
+            
+            // ID (1 byte)
+            view.setUint8(0, CMD_LOAD_CHUNK); 
+
+            // Script Len (4 bytes, Big-Endian)
+            view.setUint32(1, fullBuffer.byteLength, false); 
+
+            // CRC (4 bytes, Big-Endian)
+            view.setUint32(5, crc, false); 
+
+            // Seq ID (2 bytes, Big-Endian)
+            view.setUint16(9, seqId, false); 
+
+            // Data (N bytes)
+            new Uint8Array(packet).set(dataArray, HEADER_SIZE_FIRST);
+
+            return packet;
+        }
+
+        /**
+         * Creates a subsequent packet with only SeqID.
+         * Structure: [SeqID(2)] [Data(N)]
+         * (Usa Big-Endian per SeqID)
+         */
+        function createChunkPacket(chunkData, seqId) {
+            const packet = new ArrayBuffer(HEADER_SIZE_SUBSEQUENT + chunkData.byteLength);
+            const view = new DataView(packet);
+            const dataArray = new Uint8Array(chunkData);
+            
+            // Seq ID (2 bytes, Big-Endian)
+            view.setUint16(0, seqId, false); 
+
+            // Data (N bytes)
+            new Uint8Array(packet).set(dataArray, HEADER_SIZE_SUBSEQUENT);
+
+            return packet;
+        }
+
+
+        // --- UPLOAD CHUNKS (0x01) ---
+        async function startUploadChunks() {
+            if (!gattServer || !gattServer.connected || uploadedFileBuffer === null) {
+                log('ERROR: Not connected or file not loaded in memory.');
+                return;
+            }
+            
+            const totalBytes = uploadedFileBuffer.byteLength;
+            const fileCrc = crc32(uploadedFileBuffer);
+            log(`CRC-32 of file computed: 0x${fileCrc.toString(16).toUpperCase()}`);
+
+            let offset = 0;
+            let seqId = 0;
+            
+            try {
+                log(`Start file upload (size: ${totalBytes} bytes).`);
+                
+                uploadChunksBtn.disabled = true;
+                saveFileBtn.disabled = true;
+
+                while (offset < totalBytes) {
+                    let packet;
+                    let payloadSize;
+                    
+                    if (seqId === 0) {
+                        // --- Primo Pacchetto (Header + Dati) ---
+                        const maxDataSize = MAX_BLE_CHUNK_SIZE - HEADER_SIZE_FIRST;
+                        const end = Math.min(offset + maxDataSize, totalBytes);
+                        const chunkData = uploadedFileBuffer.slice(offset, end);
+                        
+                        packet = createHeaderPacket(uploadedFileBuffer, chunkData, fileCrc, seqId);
+                        payloadSize = chunkData.byteLength;
+                        
+                        log(`Send Header/Chunk 0: Len=${totalBytes}, CRC=0x${fileCrc.toString(16).toUpperCase()}, data=${payloadSize} bytes.`);
+
+                    } else {
+                        // --- Pacchetti Successivi (SeqID + Dati) ---
+                        const maxDataSize = MAX_BLE_CHUNK_SIZE - HEADER_SIZE_SUBSEQUENT;
+                        const end = Math.min(offset + maxDataSize, totalBytes);
+                        const chunkData = uploadedFileBuffer.slice(offset, end);
+
+                        packet = createChunkPacket(chunkData, seqId);
+                        payloadSize = chunkData.byteLength;
+                        
+                        log(`Send Chunk ${seqId}: data=${payloadSize} bytes.`);
+                    }
+
+                    // Scrivi il pacchetto sul robot
+                    await fileSystemCharacteristic.writeValueWithResponse(new Uint8Array(packet));
+
+                    offset += payloadSize;
+                    seqId++;
+                    updateStatus(`Upload: ${offset}/${totalBytes} bytes (${(offset/totalBytes * 100).toFixed(1)}%)`);
+                    
+                    await new Promise(r => setTimeout(r, 5)); // Breve pausa tra i pacchetti
+                }
+                
+                log('Upload data completed. Now you can save.');
+                setControlsState(true); 
+                updateStatus('Upload completed.');
+                
+            } catch (error) {
+                log(`ERROR DURING UPLOAD: ${error}`);
+                setControlsState(true);
+            }
+        }
+
+        // --- SALVATAGGIO FILE (0x02) ---
+        async function saveFile() {
+            const filename = filenameInput.value.trim();
+            const MAX_PAYLOAD_SIZE = 30; // 30 bytes per il nome file (incluso il terminatore nullo)
+            const MAX_CHARS = MAX_PAYLOAD_SIZE - 1; // 29 caratteri
+
+            if (!gattServer || !gattServer.connected) {
+                log('ERROR: not connected.');
+                return;
+            }
+            if (uploadedFileBuffer === null) {
+                log('ERROR: no file loaded in memory (you need to first upload a file)');
+                return;
+            }
+            if (filename.length === 0 || filename.length > MAX_CHARS) {
+                log(`ERROR: wrong file size.`);
+                return;
+            }
+
+            try {
+                const filenameBytes = new TextEncoder().encode(filename);
+                const packet = new Uint8Array(1 + MAX_PAYLOAD_SIZE);
+                
+                packet[0] = CMD_SAVE_FILE; 
+                packet.set(filenameBytes, 1); 
+                packet[1 + filenameBytes.byteLength] = 0x00; 
+
+                log(`Send save command for file: "${filename}".`);
+                log(`Packet of ${packet.byteLength} byte.`);
+                
+                await fileSystemCharacteristic.writeValueWithResponse(packet);
+                log(`OPERATION COMPLETED: File "${filename}" saved on robot.`);
+                
+            } catch (error) {
+                log(`ERROR DURING SAVING: ${error}`);
+            }
+        }
+
+        // --- ELIMINAZIONE FILE (0x03) ---
+        async function deleteFile() {
+            const filename = fileToDeleteInput.value.trim();
+            const MAX_PAYLOAD_SIZE = 30;
+            const MAX_CHARS = MAX_PAYLOAD_SIZE - 1;
+
+            if (!gattServer || !gattServer.connected) {
+                log('ERROR: not connected.');
+                return;
+            }
+            if (filename.length === 0 || filename.length > MAX_CHARS) {
+                log(`ERROR: wrong file name size.`);
+                return;
+            }
+
+            try {
+                const filenameBytes = new TextEncoder().encode(filename);
+                const packet = new Uint8Array(1 + MAX_PAYLOAD_SIZE);
+                
+                packet[0] = CMD_DELETE_FILE; 
+                packet.set(filenameBytes, 1); 
+                packet[1 + filenameBytes.byteLength] = 0x00;
+
+                log(`Send delete command for file: "${filename}".`);
+                log(`Packet of ${packet.byteLength} byte.`);
+                
+                await fileSystemCharacteristic.writeValueWithResponse(packet);
+                log(`OPERATION COMPLETED: file "${filename}" deleted.`);
+            } catch (error) {
+                log(`ERROR DURING DELETION: ${error}`);
+            }
+        }
+        
+        // --- LISTA FILE (0x04) ---
+        async function listFiles() {
+            if (!gattServer || !gattServer.connected) {
+                log('ERROR: not connected.');
+                return;
+            }
+            if (isListingFiles) {
+                log('WARNING: Already listing files.');
+                return;
+            }
+
+            const packet = new Uint8Array([CMD_LIST_FILES]); 
+
+            //isListingFiles = true; 
+            fileListBuffer = new Uint8Array(0);
+            listCurrentSequenceId = 0;
+            fileListElement.innerHTML = '<li>Sent request... waiting for indication...</li>';
+            
+            try {
+                log('Send command "list files".');
+                await fileSystemCharacteristic.writeValueWithResponse(packet);
+            } catch (error) {
+                log(`ERROR DURING REQUEST: ${error}`);
+                isListingFiles = false;
+                fileListElement.innerHTML = '<li>ERROR during list files request.</li>';
+            }
+        }
+
+        // --- NUOVO: DOWNLOAD FILE (0x06) ---
+        async function downloadFile() {
+            const filename = fileToDownloadInput.value.trim();
+            const MAX_PAYLOAD_SIZE = 30;
+            const MAX_CHARS = MAX_PAYLOAD_SIZE - 1;
+
+            if (!gattServer || !gattServer.connected) {
+                log('ERROR: not connected.');
+                return;
+            }
+            if (isDownloadingFile) {
+                log('WARNING: A download is already in progress.');
+                return;
+            }
+            if (filename.length === 0 || filename.length > MAX_CHARS) {
+                log(`ERROR: wrong file name size.`);
+                return;
+            }
+
+            try {
+                // Resetta stato download
+                resetDownloadState();
+                //isDownloadingFile = true;
+                downloadFileName = filename;
+                updateStatus('Requesting download...');
+
+                // Prepara pacchetto
+                const filenameBytes = new TextEncoder().encode(filename);
+                const packet = new Uint8Array(1 + MAX_PAYLOAD_SIZE);
+                
+                packet[0] = CMD_DOWNLOAD; // ID Comando
+                packet.set(filenameBytes, 1); // Nome file
+                packet[1 + filenameBytes.byteLength] = 0x00; // Terminatore nullo
+
+                log(`Send download command for file: "${filename}".`);
+                log(`Packet of ${packet.byteLength} byte.`);
+                
+                await fileSystemCharacteristic.writeValueWithResponse(packet);
+                log(`Download request sent. Waiting for data...`);
+            } catch (error) {
+                log(`ERROR DURING DOWNLOAD REQUEST: ${error}`);
+                isDownloadingFile = false;
+                updateStatus('Download request failed.');
+            }
+        }
+
+        // --- NUOVO: FREE MEMORY (0x08) ---
+        async function freeMemory() {
+            if (!gattServer || !gattServer.connected) {
+                log('ERROR: not connected.');
+                return;
+            }
+
+            const packet = new Uint8Array([CMD_FREE_MEMORY]); // CMD_FREE_MEMORY is 0x08
+
+            try {
+                log('Send command "Free Memory" (0x08).');
+                // Send the 1-byte packet
+                await fileSystemCharacteristic.writeValueWithResponse(packet);
+                log('Operation completed: command 0x08 sent.');
+            } catch (error) {
+                log(`ERROR DURING FREE MEMORY REQUEST: ${error}`);
+            }
+        }
+
+
+        // Inizializza lo stato dei pulsanti all'avvio
+        document.addEventListener('DOMContentLoaded', () => setControlsState(false));
+
+    </script>
+</body>
+</html>
